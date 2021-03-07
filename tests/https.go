@@ -1,78 +1,105 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	// "net/url"
-	// "path"
-	"github.com/CUCyber/ja3transport"
+    "fmt"
+    "io/ioutil"
+    "net"
+    "net/http"
+    "net/http/cookiejar"
+	"context"
+    tls "github.com/refraction-networking/utls"
 )
 
-// JA3Response is the struct
-type JA3Response struct {
-	JA3Hash   string `json:"ja3_hash"`
-	JA3       string `json:"ja3"`
-	UserAgent string `json:"User-Agent"`
-}
-
-type test_struct struct {
-    Test string
-}
-
-
 func main() {
-	site := "https://clienttest.ssllabs.com:8443/ssltest/viewMyClient.html"
+
+    
+
+    cookieJar, _ := cookiejar.New(nil)
+
+    client := &http.Client{
+		Jar: cookieJar,
+		Transport: &http.Transport{
+			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				// Note that hardcoding the address is not necessary here. Only
+				// do that if you want to ignore the DNS lookup that already
+				// happened behind the scenes.
 	
-	httpClient,err := ja3transport.New(ja3transport.SafariAuto)
-	// httpClient, err := ja3transport.NewWithString("771,4865-4866-4867-49196-49195-49188-49187-49162-49161-52393-49200-49199-49192-49191-49172-49171-52392-157-156-61-60-53-47-49160-49170-10,65281-0-23-13-5-18-16-11-51-45-43-10-21,29-23-24-25,0")
-	if err != nil{
-		fmt.Println(err)
-		panic(err)
+				tcpConn, err := (&net.Dialer{}).DialContext(ctx, network, addr) 
+				if err != nil {
+					return nil, err
+				}
+				config := tls.Config{ServerName: "ja3er.com"}
+				tlsConn := tls.UClient(tcpConn, &config, tls.HelloChrome_Auto)
+	
+				err = tlsConn.Handshake()
+				if err != nil {
+					return nil, fmt.Errorf("uTlsConn.Handshake() error: %w", err)
+				}
+	
+				return tlsConn, nil
+			},
+		},
 	}
 
-	/* First fetch the JA3 Fingerprint */
-	resp, err := httpClient.Get(site)
-	if err != nil {
-		fmt.Println(err)
-		panic(err)
-	}
+    req, err := http.NewRequest("GET", "https://ja3er.com/", nil)
+    req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36")
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println(err)
-		panic(err)
-	}
-	// unmarshal the response
-	var ja3Response JA3Response
-	err = json.Unmarshal(body, &ja3Response)
-	if err != nil {
-		fmt.Println(err)
-		panic(err)
-	}
-
-	// /* Fetch information about the ja3hash*/
-	// searchURL, _ := url.Parse("https://gobyexample.com/variables")
-	// searchURL.Path = path.Join(searchURL.Path, ja3Response.JA3Hash)
-
-	// resp, err = httpClient.Get(searchURL.String())
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	panic(err)
-	// }
-
-	// body, err = ioutil.ReadAll(resp.Body)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	panic(err)
-	// }
-
-	var out bytes.Buffer
-	err = json.Indent(&out, body, "", "\t")
-	if err != nil {
-		fmt.Println(err)
-		panic(err)
-	}
-	fmt.Println(out.String())
+    resp, err := client.Do(req)
+    if err != nil {
+        fmt.Println(err)
+    } else {
+        fmt.Println(resp.StatusCode)
+        body, _ := ioutil.ReadAll(resp.Body)
+        fmt.Println(string(body))
+    }
 }
+
+
+
+
+func tls_connection(URL string) *http.Response {
+
+    //Creating a cookie jar
+    cookieJar, _ := cookiejar.New(nil)
+
+    // Creating the client wrapper
+    client := &http.Client{
+        Jar: cookieJar,
+        Transport: &http.Transport{
+            DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+                tcpConn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+                if err != nil {
+                    return nil, err
+                }
+                config := tls.Config{InsecureSkipVerify: true}
+                tlsConn := tls.UClient(tcpConn, &config, tls.HelloChrome_Auto)
+
+                // Parsing the URL for SNI
+                u, _ := url.Parse(URL)
+                tlsConn.SetSNI(u.Host)
+
+                err = tlsConn.Handshake()
+                if err != nil {
+                    return nil, fmt.Errorf("uTlsConn.Handshake() error: %w", err)
+                }
+                return tlsConn, nil
+            },
+        },
+    }
+
+    // Establishes a request
+    req, err := http.NewRequest("GET", URL, nil)
+    req.Header.Add("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
+
+    // the client.do wraps the request
+    resp, err := client.Do(req)
+    if err != nil {
+        fmt.Println(err)
+    } else {
+        fmt.Println(resp.StatusCode)
+        body, _ := ioutil.ReadAll(resp.Body)
+        fmt.Println(string(body))
+    }
+    return resp
+}
+
